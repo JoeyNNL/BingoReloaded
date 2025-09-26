@@ -33,6 +33,14 @@ public class PostGamePhase implements GamePhase
 
     @Override
     public void setup() {
+        // Teleporteer alle spelers naar spawn en zet gamemode terug naar survival
+        var overworld = session.getOverworld();
+        var spawnLocation = overworld.getSpawnLocation();
+        overworld.getPlayers().forEach(player -> {
+            player.teleport(spawnLocation);
+            player.setGameMode(org.bukkit.GameMode.SURVIVAL);
+        });
+
         if (timer.getStartTime() <= 0) {
             session.prepareNextGame();
             timer.stop();

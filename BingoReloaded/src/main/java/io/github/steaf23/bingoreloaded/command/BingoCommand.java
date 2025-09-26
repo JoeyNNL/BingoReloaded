@@ -80,6 +80,89 @@ public class BingoCommand implements TabExecutor
         }
 
         switch (args[0]) {
+            case "discordstats" -> {
+                String webhookUrl = config.getString("discordWebhookUrl", "");
+                if (webhookUrl.isEmpty()) {
+                    BingoPlayerSender.sendMessage(Component.text("Discord webhook is niet ingesteld.").color(NamedTextColor.RED), player);
+                    return true;
+                }
+                BingoStatData statsData = new BingoStatData();
+                java.util.Map<String, int[]> allStats = new java.util.HashMap<>();
+                for (org.bukkit.OfflinePlayer p : org.bukkit.Bukkit.getOfflinePlayers()) {
+                    String name = p.getName();
+                    if (name == null) continue;
+                    int[] stats = new int[5];
+                    stats[0] = statsData.getPlayerStat(p.getUniqueId(), io.github.steaf23.bingoreloaded.data.BingoStatType.WINS);
+                    stats[1] = statsData.getPlayerStat(p.getUniqueId(), io.github.steaf23.bingoreloaded.data.BingoStatType.LOSSES);
+                    stats[2] = statsData.getPlayerStat(p.getUniqueId(), io.github.steaf23.bingoreloaded.data.BingoStatType.TASKS_COMPLETED);
+                    stats[3] = statsData.getPlayerStat(p.getUniqueId(), io.github.steaf23.bingoreloaded.data.BingoStatType.RECORD_TASKS);
+                    stats[4] = statsData.getPlayerStat(p.getUniqueId(), io.github.steaf23.bingoreloaded.data.BingoStatType.WAND_USES);
+                    allStats.put(name, stats);
+                }
+                StringBuilder stats = new StringBuilder();
+                stats.append("Bingo statistieken top 5:\n");
+                String[] statNames = {"Wins", "Losses", "Tasks completed", "Tasks Completed Record", "Wand uses"};
+                for (int i = 0; i < statNames.length; i++) {
+                    int idx = i;
+                    var top5 = allStats.entrySet().stream()
+                        .sorted((a, b) -> Integer.compare(b.getValue()[idx], a.getValue()[idx]))
+                        .limit(5)
+                        .toList();
+                    stats.append("Top 5 ").append(statNames[i]).append(":\n");
+                    for (var entry : top5) {
+                        stats.append(entry.getKey()).append(": ").append(entry.getValue()[idx]).append("\n");
+                    }
+                }
+                sendDiscordWebhook(webhookUrl, stats.toString());
+                BingoPlayerSender.sendMessage(Component.text("Top 5 statistieken zijn naar Discord gestuurd!").color(NamedTextColor.GREEN), player);
+                return true;
+            }
+    // Helper om een Discord webhook te sturen
+    private void sendDiscordWebhook(String webhookUrl, String content) {
+        try {
+            java.net.URL url = new java.net.URL(webhookUrl);
+            java.net.HttpURLConnection con = (java.net.HttpURLConnection) url.openConnection();
+            con.setRequestMethod("POST");
+            con.setRequestProperty("Content-Type", "application/json");
+            con.setDoOutput(true);
+            String json = "{\"content\": " + org.bukkit.util.StringUtil.replace(content, "\"", "'") + "}";
+            try (java.io.OutputStream os = con.getOutputStream()) {
+                byte[] input = json.getBytes("utf-8");
+                os.write(input, 0, input.length);
+            }
+            con.getResponseCode(); // trigger send
+        } catch (Exception e) {
+            // Fout afvangen
+        }
+    }
+            case "tpteammate" -> {
+                if (!session.isRunning()) {
+                    BingoPlayerSender.sendMessage(Component.text("Je kunt alleen teleporteren tijdens een actieve game!").color(NamedTextColor.RED), player);
+                    return true;
+                }
+                BingoParticipant participant = session.teamManager.getPlayerAsParticipant(player);
+                if (participant == null || participant.getTeam() == null) {
+                    BingoPlayerSender.sendMessage(Component.text("Je zit niet in een team!").color(NamedTextColor.RED), player);
+                    return true;
+                }
+                var teammates = participant.getTeam().getMembers().stream()
+                        .filter(p -> p instanceof BingoPlayer)
+                        .map(p -> ((BingoPlayer)p).getPlayer())
+                        .filter(p -> !p.getUniqueId().equals(player.getUniqueId()))
+                        .toList();
+                if (teammates.isEmpty()) {
+                    BingoPlayerSender.sendMessage(Component.text("Geen teammate gevonden om naartoe te teleporteren!").color(NamedTextColor.RED), player);
+                    return true;
+                }
+                Player target = teammates.get(0); // standaard eerste teammate
+                if (args.length > 1) {
+                    String name = args[1];
+                    target = teammates.stream().filter(p -> p.getName().equalsIgnoreCase(name)).findFirst().orElse(target);
+                }
+                player.teleport(target.getLocation());
+                BingoPlayerSender.sendMessage(Component.text("Je bent geteleporteerd naar je teammate: " + target.getName()).color(NamedTextColor.GREEN), player);
+                return true;
+            }
             case "join" -> {
                 TeamSelectionMenu menu = new TeamSelectionMenu(menuBoard, session);
                 menu.open(player);
