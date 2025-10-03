@@ -36,6 +36,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class BingoCommand implements TabExecutor
@@ -81,7 +82,8 @@ public class BingoCommand implements TabExecutor
 
         switch (args[0]) {
             case "discordstats" -> {
-                String webhookUrl = config.getString("discordWebhookUrl", "");
+                // Je kunt hier je Discord webhook URL invoeren
+                String webhookUrl = System.getProperty("bingo.discord.webhook", "");
                 if (webhookUrl.isEmpty()) {
                     BingoPlayerSender.sendMessage(Component.text("Discord webhook is niet ingesteld.").color(NamedTextColor.RED), player);
                     return true;
@@ -94,7 +96,7 @@ public class BingoCommand implements TabExecutor
                     int[] stats = new int[5];
                     stats[0] = statsData.getPlayerStat(p.getUniqueId(), io.github.steaf23.bingoreloaded.data.BingoStatType.WINS);
                     stats[1] = statsData.getPlayerStat(p.getUniqueId(), io.github.steaf23.bingoreloaded.data.BingoStatType.LOSSES);
-                    stats[2] = statsData.getPlayerStat(p.getUniqueId(), io.github.steaf23.bingoreloaded.data.BingoStatType.TASKS_COMPLETED);
+                    stats[2] = statsData.getPlayerStat(p.getUniqueId(), io.github.steaf23.bingoreloaded.data.BingoStatType.TASKS);
                     stats[3] = statsData.getPlayerStat(p.getUniqueId(), io.github.steaf23.bingoreloaded.data.BingoStatType.RECORD_TASKS);
                     stats[4] = statsData.getPlayerStat(p.getUniqueId(), io.github.steaf23.bingoreloaded.data.BingoStatType.WAND_USES);
                     allStats.put(name, stats);
@@ -117,24 +119,6 @@ public class BingoCommand implements TabExecutor
                 BingoPlayerSender.sendMessage(Component.text("Top 5 statistieken zijn naar Discord gestuurd!").color(NamedTextColor.GREEN), player);
                 return true;
             }
-    // Helper om een Discord webhook te sturen
-    private void sendDiscordWebhook(String webhookUrl, String content) {
-        try {
-            java.net.URL url = new java.net.URL(webhookUrl);
-            java.net.HttpURLConnection con = (java.net.HttpURLConnection) url.openConnection();
-            con.setRequestMethod("POST");
-            con.setRequestProperty("Content-Type", "application/json");
-            con.setDoOutput(true);
-            String json = "{\"content\": " + org.bukkit.util.StringUtil.replace(content, "\"", "'") + "}";
-            try (java.io.OutputStream os = con.getOutputStream()) {
-                byte[] input = json.getBytes("utf-8");
-                os.write(input, 0, input.length);
-            }
-            con.getResponseCode(); // trigger send
-        } catch (Exception e) {
-            // Fout afvangen
-        }
-    }
             case "tpteammate" -> {
                 if (!session.isRunning()) {
                     BingoPlayerSender.sendMessage(Component.text("Je kunt alleen teleporteren tijdens een actieve game!").color(NamedTextColor.RED), player);
@@ -145,9 +129,11 @@ public class BingoCommand implements TabExecutor
                     BingoPlayerSender.sendMessage(Component.text("Je zit niet in een team!").color(NamedTextColor.RED), player);
                     return true;
                 }
-                var teammates = participant.getTeam().getMembers().stream()
+                List<Player> teammates = participant.getTeam().getMembers().stream()
                         .filter(p -> p instanceof BingoPlayer)
-                        .map(p -> ((BingoPlayer)p).getPlayer())
+                        .map(p -> ((BingoPlayer)p).sessionPlayer())
+                        .filter(Optional::isPresent)
+                        .map(Optional::get)
                         .filter(p -> !p.getUniqueId().equals(player.getUniqueId()))
                         .toList();
                 if (teammates.isEmpty()) {
@@ -513,5 +499,24 @@ public class BingoCommand implements TabExecutor
 
     public void reloadLanguage() {
         plugin.reloadLanguage();
+    }
+
+    // Helper om een Discord webhook te sturen
+    private void sendDiscordWebhook(String webhookUrl, String content) {
+        try {
+            java.net.URL url = new java.net.URL(webhookUrl);
+            java.net.HttpURLConnection con = (java.net.HttpURLConnection) url.openConnection();
+            con.setRequestMethod("POST");
+            con.setRequestProperty("Content-Type", "application/json");
+            con.setDoOutput(true);
+            String json = "{\"content\": \"" + content.replace("\"", "'") + "\"}";
+            try (java.io.OutputStream os = con.getOutputStream()) {
+                byte[] input = json.getBytes("utf-8");
+                os.write(input, 0, input.length);
+            }
+            con.getResponseCode(); // trigger send
+        } catch (Exception e) {
+            // Fout afvangen
+        }
     }
 }
