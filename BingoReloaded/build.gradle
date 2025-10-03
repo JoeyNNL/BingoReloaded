@@ -64,11 +64,30 @@ tasks.jar {
         attributes["paperweight-mappings-namespace"] = "mojang"
     }
 }
-// if you have shadowJar configured
+// Configure shadowJar to include PlayerDisplay
 tasks.shadowJar {
     manifest {
         attributes["paperweight-mappings-namespace"] = "mojang"
     }
+    
+    // Include PlayerDisplay classes in the JAR
+    archiveClassifier = null // This makes shadowJar the main artifact
+    
+    // Relocate to avoid conflicts with other plugins
+    relocate 'io.github.steaf23.playerdisplay', 'io.github.steaf23.bingoreloaded.shaded.playerdisplay'
+    
+    // Minimize JAR size by only including what's needed
+    minimize()
+}
+
+// Make shadow JAR the default build output
+build {
+    dependsOn shadowJar
+}
+
+// Don't build the regular JAR
+jar {
+    enabled = false
 }
 
 processResources {

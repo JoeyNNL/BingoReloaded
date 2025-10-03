@@ -82,41 +82,18 @@ public class BingoCommand implements TabExecutor
 
         switch (args[0]) {
             case "discordstats" -> {
-                // Je kunt hier je Discord webhook URL invoeren
-                String webhookUrl = System.getProperty("bingo.discord.webhook", "");
-                if (webhookUrl.isEmpty()) {
-                    BingoPlayerSender.sendMessage(Component.text("Discord webhook is niet ingesteld.").color(NamedTextColor.RED), player);
+                String webhookUrl = BingoReloaded.getInstance().getConfig().getString("discordWebhookUrl", "");
+                if (webhookUrl.isEmpty() || webhookUrl.contains("YOUR_WEBHOOK")) {
+                    BingoPlayerSender.sendMessage(Component.text("Discord webhook is niet ingesteld in de config.yml").color(NamedTextColor.RED), player);
+                    BingoPlayerSender.sendMessage(Component.text("Voeg je echte Discord webhook URL toe aan config.yml").color(NamedTextColor.YELLOW), player);
                     return true;
                 }
-                BingoStatData statsData = new BingoStatData();
-                java.util.Map<String, int[]> allStats = new java.util.HashMap<>();
-                for (org.bukkit.OfflinePlayer p : org.bukkit.Bukkit.getOfflinePlayers()) {
-                    String name = p.getName();
-                    if (name == null) continue;
-                    int[] stats = new int[5];
-                    stats[0] = statsData.getPlayerStat(p.getUniqueId(), io.github.steaf23.bingoreloaded.data.BingoStatType.WINS);
-                    stats[1] = statsData.getPlayerStat(p.getUniqueId(), io.github.steaf23.bingoreloaded.data.BingoStatType.LOSSES);
-                    stats[2] = statsData.getPlayerStat(p.getUniqueId(), io.github.steaf23.bingoreloaded.data.BingoStatType.TASKS);
-                    stats[3] = statsData.getPlayerStat(p.getUniqueId(), io.github.steaf23.bingoreloaded.data.BingoStatType.RECORD_TASKS);
-                    stats[4] = statsData.getPlayerStat(p.getUniqueId(), io.github.steaf23.bingoreloaded.data.BingoStatType.WAND_USES);
-                    allStats.put(name, stats);
+                
+                if (io.github.steaf23.bingoreloaded.util.DiscordWebhookUtil.sendStatsToDiscord()) {
+                    BingoPlayerSender.sendMessage(Component.text("📊 Top 5 statistieken zijn naar Discord gestuurd!").color(NamedTextColor.GREEN), player);
+                } else {
+                    BingoPlayerSender.sendMessage(Component.text("❌ Fout bij verzenden naar Discord. Controleer console logs.").color(NamedTextColor.RED), player);
                 }
-                StringBuilder stats = new StringBuilder();
-                stats.append("Bingo statistieken top 5:\n");
-                String[] statNames = {"Wins", "Losses", "Tasks completed", "Tasks Completed Record", "Wand uses"};
-                for (int i = 0; i < statNames.length; i++) {
-                    int idx = i;
-                    var top5 = allStats.entrySet().stream()
-                        .sorted((a, b) -> Integer.compare(b.getValue()[idx], a.getValue()[idx]))
-                        .limit(5)
-                        .toList();
-                    stats.append("Top 5 ").append(statNames[i]).append(":\n");
-                    for (var entry : top5) {
-                        stats.append(entry.getKey()).append(": ").append(entry.getValue()[idx]).append("\n");
-                    }
-                }
-                sendDiscordWebhook(webhookUrl, stats.toString());
-                BingoPlayerSender.sendMessage(Component.text("Top 5 statistieken zijn naar Discord gestuurd!").color(NamedTextColor.GREEN), player);
                 return true;
             }
             case "tpteammate" -> {
@@ -303,9 +280,9 @@ public class BingoCommand implements TabExecutor
             }
             default -> {
                 if (player.hasPermission("bingo.admin")) {
-                    BingoMessage.COMMAND_USAGE.sendToAudience(player, NamedTextColor.RED, Component.text("/bingo [getcard | stats | start | end | join | vote | back | leave | deathmatch | creator | teams | kit | wait | teamedit | about | reload | view]"));
+                    BingoMessage.COMMAND_USAGE.sendToAudience(player, NamedTextColor.RED, Component.text("/bingo [getcard | stats | start | end | join | vote | back | leave | tpteammate | deathmatch | creator | teams | kit | wait | teamedit | about | reload | view | discordstats]"));
                 } else {
-                    BingoMessage.COMMAND_USAGE.sendToAudience(player, NamedTextColor.RED, Component.text("/bingo [getcard | stats | join | vote | back | leave | about | view]"));
+                    BingoMessage.COMMAND_USAGE.sendToAudience(player, NamedTextColor.RED, Component.text("/bingo [getcard | stats | join | vote | back | leave | tpteammate | about | view]"));
                 }
             }
         }
@@ -411,7 +388,7 @@ public class BingoCommand implements TabExecutor
     public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias, @NotNull String[] args) {
         if (!(sender instanceof Player player) || player.hasPermission("bingo.admin")) {
             if (args.length <= 1) {
-                return List.of("join", "vote", "getcard", "back", "leave", "stats", "end", "wait", "kit", "deathmatch", "creator", "teams", "teamedit", "about", "reload", "view");
+                return List.of("join", "vote", "getcard", "back", "leave", "tpteammate", "stats", "end", "wait", "kit", "deathmatch", "creator", "teams", "teamedit", "about", "reload", "view", "discordstats");
             }
 
             if (args[0].equals("kit")) {
@@ -437,12 +414,30 @@ public class BingoCommand implements TabExecutor
                         "data",
                         "language"
                 );
+            } else if (args[0].equals("tpteammate") && args.length == 2) {
+                // Tab completion voor teammate namen
+                if (sender instanceof Player player) {
+                    BingoSession session = gameManager.getSessionFromWorld(player.getWorld());
+                    if (session != null && session.isRunning()) {
+                        BingoParticipant participant = session.teamManager.getPlayerAsParticipant(player);
+                        if (participant != null && participant.getTeam() != null) {
+                            return participant.getTeam().getMembers().stream()
+                                    .filter(p -> p instanceof BingoPlayer)
+                                    .map(p -> ((BingoPlayer)p).sessionPlayer())
+                                    .filter(Optional::isPresent)
+                                    .map(Optional::get)
+                                    .filter(p -> !p.getUniqueId().equals(player.getUniqueId()))
+                                    .map(Player::getName)
+                                    .toList();
+                        }
+                    }
+                }
             }
             return List.of();
         }
 
         if (args.length == 1) {
-            return List.of("join", "vote", "getcard", "back", "leave", "stats", "about", "view");
+            return List.of("join", "vote", "getcard", "back", "leave", "tpteammate", "stats", "about", "view");
         }
         return List.of();
     }
@@ -501,22 +496,5 @@ public class BingoCommand implements TabExecutor
         plugin.reloadLanguage();
     }
 
-    // Helper om een Discord webhook te sturen
-    private void sendDiscordWebhook(String webhookUrl, String content) {
-        try {
-            java.net.URL url = new java.net.URL(webhookUrl);
-            java.net.HttpURLConnection con = (java.net.HttpURLConnection) url.openConnection();
-            con.setRequestMethod("POST");
-            con.setRequestProperty("Content-Type", "application/json");
-            con.setDoOutput(true);
-            String json = "{\"content\": \"" + content.replace("\"", "'") + "\"}";
-            try (java.io.OutputStream os = con.getOutputStream()) {
-                byte[] input = json.getBytes("utf-8");
-                os.write(input, 0, input.length);
-            }
-            con.getResponseCode(); // trigger send
-        } catch (Exception e) {
-            // Fout afvangen
-        }
-    }
+
 }

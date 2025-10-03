@@ -13,6 +13,7 @@ import io.github.steaf23.bingoreloaded.data.TeamData;
 import io.github.steaf23.bingoreloaded.data.TexturedMenuData;
 import io.github.steaf23.bingoreloaded.data.config.BingoConfigurationData;
 import io.github.steaf23.bingoreloaded.data.config.BingoOptions;
+import io.github.steaf23.bingoreloaded.event.DiscordEventListener;
 import io.github.steaf23.bingoreloaded.data.core.DataAccessor;
 import io.github.steaf23.bingoreloaded.data.core.DataStorageSerializerRegistry;
 import io.github.steaf23.bingoreloaded.data.core.VirtualDataAccessor;
@@ -153,6 +154,7 @@ public class BingoReloaded extends JavaPlugin
 
         Bukkit.getPluginManager().registerEvents(menuBoard, this);
         Bukkit.getPluginManager().registerEvents(hudRegistry, this);
+        Bukkit.getPluginManager().registerEvents(new DiscordEventListener(), this);
 
         Metrics bStatsMetrics = new Metrics(this, 22586);
         bStatsMetrics.addCustomChart(new Metrics.SimplePie("selected_language",
@@ -328,6 +330,11 @@ public class BingoReloaded extends JavaPlugin
             if (defaultConfigFull.contains(key)) {
                 defaultConfigFull.set(key, userConfig.get(key));
             }
+        }
+
+        // Zorg ervoor dat discordWebhookUrl altijd bestaat in de config
+        if (!userConfig.contains("discordWebhookUrl")) {
+            getLogger().info("Voegde discordWebhookUrl toe aan config.yml - configureer deze voor Discord integratie");
         }
 
         defaultConfigFull.set("version", getPluginMeta().getVersion());

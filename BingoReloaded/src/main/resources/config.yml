@@ -30,7 +30,7 @@ savePlayerStatistics: false # true or false
 
 
 # Discord webhook URL voor statistieken. Laat leeg om uit te schakelen.
-discordWebhookUrl: ''
+discordWebhookUrl: 'https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN'
 
 # If this value is not an empty string it will be sent as a command to the console.
 sendCommandAfterGameEnds: '' # command to send
