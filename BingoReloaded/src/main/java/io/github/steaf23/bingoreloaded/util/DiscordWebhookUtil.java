@@ -13,7 +13,7 @@ import java.util.UUID;
 
 public class DiscordWebhookUtil {
     
-    private static String lastMessageId = null;
+
     
     public static boolean sendStatsToDiscord() {
         String webhookUrl = BingoReloaded.getInstance().getConfig().getString("discordWebhookUrl", "");
@@ -22,16 +22,13 @@ public class DiscordWebhookUtil {
             return false;
         }
         
-        // Verwijder vorige bericht als het bestaat
-        if (lastMessageId != null) {
-            deleteDiscordMessage(webhookUrl, lastMessageId);
-        }
+        // Verwijder alle oude stats berichten van deze webhook
+        deleteOldStatsMessages(webhookUrl);
         
         String stats = generateStatsString();
         String messageId = sendDiscordWebhook(webhookUrl, stats);
         
         if (messageId != null) {
-            lastMessageId = messageId;
             return true;
         }
         
@@ -90,7 +87,7 @@ public class DiscordWebhookUtil {
         }
         
         StringBuilder stats = new StringBuilder();
-        stats.append("🏆 Bingo Reloaded - Top 5 Statistieken 🏆\\n\\n");
+        stats.append("🏆 Bingo Reloaded - Top 5 Statistieken 🏆\n\n");
         String[] statNames = {"🥇 Wins", "💀 Losses", "✅ Tasks completed", "🎯 Tasks Completed Record", "🪄 Wand uses"};
         
         for (int i = 0; i < statNames.length; i++) {
@@ -100,7 +97,7 @@ public class DiscordWebhookUtil {
                 .limit(5)
                 .toList();
             
-            stats.append("**").append(statNames[i]).append(":**\\n");
+            stats.append("**").append(statNames[i]).append(":**\n");
             int position = 1;
             for (var entry : top5) {
                 String medal = switch (position) {
@@ -109,10 +106,10 @@ public class DiscordWebhookUtil {
                     case 3 -> "🥉";
                     default -> "🏅";
                 };
-                stats.append(medal).append(" ").append(entry.getKey()).append(": **").append(entry.getValue()[idx]).append("**\\n");
+                stats.append(medal).append(" ").append(entry.getKey()).append(": **").append(entry.getValue()[idx]).append("**\n");
                 position++;
             }
-            stats.append("\\n");
+            stats.append("\n");
         }
         
         return stats.toString();
@@ -182,26 +179,47 @@ public class DiscordWebhookUtil {
         }
     }
     
-    private static void deleteDiscordMessage(String webhookUrl, String messageId) {
-        if (messageId.equals("unknown")) return;
+    private static void deleteOldStatsMessages(String webhookUrl) {
+        // Discord webhooks kunnen geen berichten ophalen, dus we gebruiken een andere strategie:
+        // We sturen een "vervang" bericht door een waarschuwing te geven dat oude stats vervangen worden
+        BingoReloaded.getInstance().getLogger().info("⚠️  Oude Discord stats berichten kunnen niet automatisch worden verwijderd");
+        BingoReloaded.getInstance().getLogger().info("💡 Tip: Verwijder handmatig oude stats berichten in Discord voor de beste ervaring");
         
+        // Alternatief: We kunnen een kort "clearing" bericht sturen en daarna meteen vervangen
+        sendClearingMessage(webhookUrl);
+    }
+    
+    private static void sendClearingMessage(String webhookUrl) {
         try {
-            String deleteUrl = webhookUrl + "/messages/" + messageId;
-            java.net.URI uri = java.net.URI.create(deleteUrl);
+            // Stuur een kort bericht dat we gaan updaten
+            java.net.URI uri = java.net.URI.create(webhookUrl);
             java.net.HttpURLConnection con = (java.net.HttpURLConnection) uri.toURL().openConnection();
-            con.setRequestMethod("DELETE");
+            con.setRequestMethod("POST");
+            con.setRequestProperty("Content-Type", "application/json");
             con.setRequestProperty("User-Agent", "BingoReloaded/3.2.0");
+            con.setDoOutput(true);
             con.setConnectTimeout(5000);
             con.setReadTimeout(5000);
             
+            String json = "{\"content\": \"🔄 Bijwerken van Bingo statistieken...\"}";
+            
+            try (java.io.OutputStream os = con.getOutputStream()) {
+                byte[] input = json.getBytes("utf-8");
+                os.write(input, 0, input.length);
+            }
+            
             int responseCode = con.getResponseCode();
-            if (responseCode == 204 || responseCode == 404) {
-                BingoReloaded.getInstance().getLogger().info("Oude Discord stats bericht verwijderd");
-            } else {
-                BingoReloaded.getInstance().getLogger().warning("Kon oude Discord bericht niet verwijderen - Response code: " + responseCode);
+            if (responseCode >= 200 && responseCode < 300) {
+                // Korte pause zodat gebruikers het "updating" bericht zien
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
             }
         } catch (Exception e) {
-            BingoReloaded.getInstance().getLogger().warning("Fout bij verwijderen oude Discord bericht: " + e.getMessage());
+            // Geen probleem als dit faalt, gewoon doorgaan met de echte stats
         }
     }
+
 }
