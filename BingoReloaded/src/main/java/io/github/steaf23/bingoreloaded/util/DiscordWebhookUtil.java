@@ -5,15 +5,13 @@ import io.github.steaf23.bingoreloaded.data.BingoStatData;
 import io.github.steaf23.bingoreloaded.data.BingoStatType;
 import io.github.steaf23.bingoreloaded.data.core.DataAccessor;
 
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 
 public class DiscordWebhookUtil {
     
-
+    // Cache om UUID naar naam lookups te bewaren
+    private static final Map<UUID, String> uuidNameCache = new HashMap<>();
+    
     
     public static boolean sendStatsToDiscord() {
         String webhookUrl = BingoReloaded.getInstance().getConfig().getString("discordWebhookUrl", "");
@@ -61,10 +59,53 @@ public class DiscordWebhookUtil {
         for (UUID uuid : playerUUIDs) {
             org.bukkit.OfflinePlayer p = org.bukkit.Bukkit.getOfflinePlayer(uuid);
             String name = p.getName();
+            
+            // Als geen naam bekend is, probeer deze op te halen via Mojang API
             if (name == null) {
-                name = "Unknown-" + uuid.toString().substring(0, 8);
+                // Check eerst de cache
+                if (uuidNameCache.containsKey(uuid)) {
+                    name = uuidNameCache.get(uuid);
+                } else {
+                    // Alleen API call maken als de speler daadwerkelijk stats heeft
+                    // om onnodige API calls te voorkomen
+                    int[] tempStats = new int[5];
+                    tempStats[0] = statsData.getPlayerStat(uuid, BingoStatType.WINS);
+                    tempStats[1] = statsData.getPlayerStat(uuid, BingoStatType.LOSSES);
+                    tempStats[2] = statsData.getPlayerStat(uuid, BingoStatType.TASKS);
+                    tempStats[3] = statsData.getPlayerStat(uuid, BingoStatType.RECORD_TASKS);
+                    tempStats[4] = statsData.getPlayerStat(uuid, BingoStatType.WAND_USES);
+                    
+                    boolean hasStats = false;
+                    for (int stat : tempStats) {
+                        if (stat > 0) {
+                            hasStats = true;
+                            break;
+                        }
+                    }
+                    
+                    if (hasStats) {
+                        name = getPlayerNameFromUUID(uuid);
+                        // Cache het resultaat (ook als null)
+                        uuidNameCache.put(uuid, name);
+                        
+                        // Kleine vertraging om rate limiting te voorkomen
+                        try {
+                            Thread.sleep(200);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                    } else {
+                        // Geen stats, skip deze UUID
+                        continue;
+                    }
+                }
+                
+                if (name == null) {
+                    name = "Unknown-" + uuid.toString().substring(0, 8);
+                }
             }
             
+            // Bereken stats (mogelijk al berekend hierboven voor naamloze spelers)
             int[] stats = new int[5];
             stats[0] = statsData.getPlayerStat(uuid, BingoStatType.WINS);
             stats[1] = statsData.getPlayerStat(uuid, BingoStatType.LOSSES);
@@ -87,23 +128,24 @@ public class DiscordWebhookUtil {
         }
         
         StringBuilder stats = new StringBuilder();
-        stats.append("🏆 Bingo Reloaded - Top 5 Statistieken 🏆\n\n");
+        stats.append("🏆 Bingo Reloaded - Top 10 Statistieken 🏆\n\n");
         String[] statNames = {"🥇 Wins", "💀 Losses", "✅ Tasks completed", "🎯 Tasks Completed Record", "🪄 Wand uses"};
         
         for (int i = 0; i < statNames.length; i++) {
             int idx = i;
-            var top5 = allStats.entrySet().stream()
+            var top10 = allStats.entrySet().stream()
                 .sorted((a, b) -> Integer.compare(b.getValue()[idx], a.getValue()[idx]))
-                .limit(5)
+                .limit(10)
                 .toList();
             
             stats.append("**").append(statNames[i]).append(":**\n");
             int position = 1;
-            for (var entry : top5) {
+            for (var entry : top10) {
                 String medal = switch (position) {
                     case 1 -> "🥇";
                     case 2 -> "🥈"; 
                     case 3 -> "🥉";
+                    case 4, 5, 6, 7, 8, 9, 10 -> "🏅";
                     default -> "🏅";
                 };
                 stats.append(medal).append(" ").append(entry.getKey()).append(": **").append(entry.getValue()[idx]).append("**\n");
@@ -220,6 +262,91 @@ public class DiscordWebhookUtil {
         } catch (Exception e) {
             // Geen probleem als dit faalt, gewoon doorgaan met de echte stats
         }
+    }
+    
+    /**
+     * Haalt de spelernaam op via de Mojang API voor een gegeven UUID
+     * @param uuid De UUID van de speler
+     * @return De spelernaam of null als deze niet gevonden kon worden
+     */
+    private static String getPlayerNameFromUUID(UUID uuid) {
+        // Probeer eerst de standaard SessionServer API
+        try {
+            String apiUrl = "https://sessionserver.mojang.com/session/minecraft/profile/" + uuid.toString().replace("-", "");
+            java.net.URI uri = java.net.URI.create(apiUrl);
+            java.net.HttpURLConnection con = (java.net.HttpURLConnection) uri.toURL().openConnection();
+            con.setRequestMethod("GET");
+            con.setRequestProperty("User-Agent", "BingoReloaded/3.2.0");
+            con.setConnectTimeout(5000);
+            con.setReadTimeout(5000);
+            
+            int responseCode = con.getResponseCode();
+            
+            if (responseCode == 200) {
+                try (java.io.BufferedReader br = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(con.getInputStream(), "utf-8"))) {
+                    StringBuilder response = new StringBuilder();
+                    String responseLine;
+                    while ((responseLine = br.readLine()) != null) {
+                        response.append(responseLine.trim());
+                    }
+                    
+                    String responseStr = response.toString();
+                    
+                    // Parse de naam uit de JSON response
+                    if (responseStr.contains("\"name\"")) {
+                        int nameStart = responseStr.indexOf("\"name\":\"") + 8;
+                        int nameEnd = responseStr.indexOf("\"", nameStart);
+                        if (nameStart > 7 && nameEnd > nameStart) {
+                            String name = responseStr.substring(nameStart, nameEnd);
+                            return name;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // Stille failure, probeer fallback
+        }
+        
+        // Probeer alternatieve API als fallback - gebruik de PlayerDB API
+        try {
+            String fallbackUrl = "https://playerdb.co/api/player/minecraft/" + uuid.toString();
+            java.net.URI uri = java.net.URI.create(fallbackUrl);
+            java.net.HttpURLConnection con = (java.net.HttpURLConnection) uri.toURL().openConnection();
+            con.setRequestMethod("GET");
+            con.setRequestProperty("User-Agent", "BingoReloaded/3.2.0");
+            con.setConnectTimeout(5000);
+            con.setReadTimeout(5000);
+            
+            int responseCode = con.getResponseCode();
+            
+            if (responseCode == 200) {
+                try (java.io.BufferedReader br = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(con.getInputStream(), "utf-8"))) {
+                    StringBuilder response = new StringBuilder();
+                    String responseLine;
+                    while ((responseLine = br.readLine()) != null) {
+                        response.append(responseLine.trim());
+                    }
+                    
+                    String responseStr = response.toString();
+                    
+                    // PlayerDB heeft een andere JSON structuur: {"data":{"player":{"username":"name"}}}
+                    if (responseStr.contains("\"username\"")) {
+                        int nameStart = responseStr.indexOf("\"username\":\"") + 12;
+                        int nameEnd = responseStr.indexOf("\"", nameStart);
+                        if (nameStart > 11 && nameEnd > nameStart) {
+                            String name = responseStr.substring(nameStart, nameEnd);
+                            return name;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // Stille failure
+        }
+        
+        return null;
     }
 
 }
