@@ -1,19 +1,18 @@
 package io.github.steaf23.bingoreloaded.action;
 
+import io.github.steaf23.bingoreloaded.data.BingoSession;
 import io.github.steaf23.bingoreloaded.data.config.BingoConfigurationData;
 import io.github.steaf23.bingoreloaded.data.config.BingoOptions;
-import io.github.steaf23.bingoreloaded.gameloop.BingoSession;
-import io.github.steaf23.bingoreloaded.lib.action.ActionResult;
-import io.github.steaf23.bingoreloaded.lib.api.player.PlayerHandle;
-import io.github.steaf23.bingoreloaded.lib.api.player.PlayerHandlePaper;
-import io.github.steaf23.bingoreloaded.player.BingoParticipant;
-import io.github.steaf23.bingoreloaded.player.team.BingoTeam;
-import io.github.steaf23.bingoreloaded.util.BingoPlayerSender;
+import io.github.steaf23.bingoreloaded.player.ActionResult;
+import io.github.steaf23.bingoreloaded.player.BingoPlayerSender;
+import io.github.steaf23.bingoreloaded.player.PlayerHandle;
+import io.github.steaf23.bingoreloaded.player.paper.PlayerHandlePaper;
 import io.github.steaf23.bingoreloaded.util.DiscordWebhookUtil;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.entity.Player;
 
+import java.util.Optional;
 import java.util.function.BiFunction;
 
 /**
@@ -75,7 +74,7 @@ public class PaperBingoActions {
             }
 
             // Must be in an active game
-            if (!session.isRunning()) {
+            if (!session.sessionIsActive()) {
                 Component msg = Component.text("You must be in an active game to use this command!")
                         .color(NamedTextColor.RED);
                 BingoPlayerSender.sendMessage(msg, playerHandle);
@@ -87,14 +86,15 @@ public class PaperBingoActions {
                 return ActionResult.IGNORED;
             }
 
-            Player player = paperHandle.handle();
-            if (player == null) {
+            Optional<Player> optionalPlayer = paperHandle.sessionPlayer();
+            if (optionalPlayer.isEmpty()) {
                 Component msg = Component.text("Could not find your player!")
                         .color(NamedTextColor.RED);
                 BingoPlayerSender.sendMessage(msg, playerHandle);
                 return ActionResult.IGNORED;
             }
 
+            Player player = optionalPlayer.get();
             String targetName = args.length > 1 ? args[1] : null;
 
             // If no target specified, show usage
@@ -114,22 +114,11 @@ public class PaperBingoActions {
                 return ActionResult.IGNORED;
             }
 
-            // Check if both players are participants
-            BingoParticipant playerParticipant = session.teamManager.getPlayerAsParticipant(playerHandle);
-            BingoParticipant targetParticipant = session.teamManager.getPlayerAsParticipant(new PlayerHandlePaper(targetPlayer));
+            // Check if target is on the same team
+            var playerTeam = session.getPlayerTeam(playerHandle);
+            var targetTeam = session.getPlayerTeam(new PlayerHandlePaper(targetPlayer));
 
-            if (playerParticipant == null || targetParticipant == null) {
-                Component msg = Component.text("You or the target player is not in the game!")
-                        .color(NamedTextColor.RED);
-                BingoPlayerSender.sendMessage(msg, playerHandle);
-                return ActionResult.IGNORED;
-            }
-
-            // Check if they're on the same team
-            BingoTeam playerTeam = playerParticipant.getTeam();
-            BingoTeam targetTeam = targetParticipant.getTeam();
-
-            if (playerTeam == null || targetTeam == null || !playerTeam.equals(targetTeam)) {
+            if (playerTeam.isEmpty() || targetTeam.isEmpty() || !playerTeam.get().equals(targetTeam.get())) {
                 Component msg = Component.text("You can only teleport to teammates!")
                         .color(NamedTextColor.RED);
                 BingoPlayerSender.sendMessage(msg, playerHandle);
