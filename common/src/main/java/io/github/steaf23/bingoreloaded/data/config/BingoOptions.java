@@ -39,6 +39,7 @@ public class BingoOptions {
 	public static final ConfigurationOption<String> LANGUAGE = new StringOption("language")
 			.withEditUpdate(ConfigurationOption.EditUpdateTime.AFTER_SERVER_RESTART);
 	public static final ConfigurationOption<Boolean> SAVE_PLAYER_STATISTICS = new BooleanOption("savePlayerStatistics");
+	public static final ConfigurationOption<String> DISCORD_WEBHOOK_URL = new StringOptionAllowEmpty("discordWebhookUrl");
 	public static final ConfigurationOption<String> SEND_COMMAND_AFTER_GAME_ENDS = new StringOptionAllowEmpty("sendCommandAfterGameEnds");
 	public static final ConfigurationOption<String> SEND_COMMAND_BEFORE_GAME_STARTS = new StringOptionAllowEmpty("sendCommandBeforeGameStarts");
 	public static final ConfigurationOption<ConfigGamemode> PLAYER_GAMEMODE_AFTER_GAME = new EnumOption<>("playerGamemodeAfterGame", ConfigGamemode.class, ConfigGamemode.SURVIVAL);

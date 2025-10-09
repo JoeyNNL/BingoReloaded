@@ -28,6 +28,10 @@ language: en_us.yml
 #   (Turning this option on later will not retroactively fill stats for games played with stats off).
 savePlayerStatistics: false # true or false
 
+# Discord webhook URL voor statistieken. Laat leeg om uit te schakelen.
+# Gebruik /bingo discordstats om de top 10 statistieken naar Discord te sturen.
+discordWebhookUrl: ''
+
 # If this value is not an empty string it will be sent as a command to the console, right after the game ends.
 sendCommandAfterGameEnds: '' # command to send
 
