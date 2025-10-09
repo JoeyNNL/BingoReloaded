@@ -9,6 +9,7 @@ import io.github.steaf23.bingoreloaded.action.BingoAction;
 import io.github.steaf23.bingoreloaded.action.BingoConfigAction;
 import io.github.steaf23.bingoreloaded.action.BotCommandAction;
 import io.github.steaf23.bingoreloaded.action.CommandTemplate;
+import io.github.steaf23.bingoreloaded.action.PaperBingoActions;
 import io.github.steaf23.bingoreloaded.action.TeamChatCommand;
 import io.github.steaf23.bingoreloaded.api.CardDisplayInfo;
 import io.github.steaf23.bingoreloaded.api.CardMenu;
@@ -263,7 +264,15 @@ public class BingoReloadedPaper extends JavaPlugin implements BingoReloadedRunti
 	public void registerActions(BingoConfigurationData config) {
 		registerCommand(true, new AutoBingoAction(platform, bingo.getGameManager()));
 		registerCommand(true, new BingoConfigAction(config));
-		registerCommand(false, new BingoAction(bingo, config, bingo.getGameManager()));
+		
+		// Register main BingoAction and add Paper-specific sub-actions
+		BingoAction bingoAction = new BingoAction(bingo, config, bingo.getGameManager());
+		bingoAction.addSessionSubAction("discordstats", List.of("bingo.admin"), 
+				PaperBingoActions.createDiscordStatsAction(bingoAction, config));
+		bingoAction.addSessionSubAction("tpteammate", List.of(), 
+				PaperBingoActions.createTeammateTeleportAction(bingoAction));
+		registerCommand(false, bingoAction);
+		
 		registerCommand(false, new BotCommandAction(bingo.getGameManager()));
 //		registerCommand("bingotest", new BingoTestCommand(this));
 		if (config.getOptionValue(BingoOptions.ENABLE_TEAM_CHAT)) {
