@@ -38,6 +38,8 @@ public class BingoConfigurationData
         setOptionValueForce(BingoOptions.LANGUAGE, name -> config.getString(name, "en_us.yml"));
         setOptionValueForce(BingoOptions.SAVE_PLAYER_STATISTICS, name -> config.getBoolean(name, false));
         setOptionValueForce(BingoOptions.DISCORD_WEBHOOK_URL, name -> config.getString(name, ""));
+        setOptionValueForce(BingoOptions.DISCORD_BOT_TOKEN, name -> config.getString(name, ""));
+        setOptionValueForce(BingoOptions.DISCORD_CHANNEL_ID, name -> config.getString(name, ""));
         setOptionValueForce(BingoOptions.SEND_COMMAND_AFTER_GAME_ENDS, name -> config.getString(name, ""));
         setOptionValueForce(BingoOptions.SEND_COMMAND_BEFORE_GAME_STARTS, name -> config.getString(name, ""));
 		setOptionValueForce(BingoOptions.PLAYER_GAMEMODE_AFTER_GAME, name -> BingoOptions.ConfigGamemode.valueOf(config.getString(name, "SURVIVAL")));

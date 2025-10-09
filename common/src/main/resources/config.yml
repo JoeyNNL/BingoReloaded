@@ -32,6 +32,15 @@ savePlayerStatistics: false # true or false
 # Gebruik /bingo discordstats om de top 10 statistieken naar Discord te sturen.
 discordWebhookUrl: ''
 
+# Discord Bot configuratie (alternatief voor webhook met meer controle)
+# Een bot kan zijn eigen oude berichten verwijderen en heeft betere rechten.
+# Maak een bot op https://discord.com/developers/applications
+# Vereiste bot permissions: Send Messages, Read Message History, Manage Messages
+# Bot token (laat leeg om webhook te gebruiken in plaats van bot)
+discordBotToken: ''
+# Channel ID waar de bot berichten moet sturen (vereist als bot token is ingevuld)
+discordChannelId: ''
+
 # If this value is not an empty string it will be sent as a command to the console, right after the game ends.
 sendCommandAfterGameEnds: '' # command to send
 

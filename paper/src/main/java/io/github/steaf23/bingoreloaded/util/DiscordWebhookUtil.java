@@ -19,23 +19,270 @@ public class DiscordWebhookUtil {
     
     
     public static boolean sendStatsToDiscord(BingoConfigurationData config) {
+        // Check eerst of bot token geconfigureerd is (voorkeur boven webhook)
+        String botToken = config.getOptionValue(BingoOptions.DISCORD_BOT_TOKEN);
+        String channelId = config.getOptionValue(BingoOptions.DISCORD_CHANNEL_ID);
+        
+        if (!botToken.isEmpty() && !channelId.isEmpty()) {
+            // Gebruik bot mode
+            Bukkit.getLogger().info("Gebruik Discord bot voor stats verzending");
+            return sendStatsViaBot(botToken, channelId);
+        }
+        
+        // Fallback naar webhook
         String webhookUrl = config.getOptionValue(BingoOptions.DISCORD_WEBHOOK_URL);
         if (webhookUrl.isEmpty() || webhookUrl.contains("YOUR_WEBHOOK")) {
-            Bukkit.getLogger().info("Discord webhook niet geconfigureerd, skipte stats verzending");
+            Bukkit.getLogger().info("Discord webhook/bot niet geconfigureerd, skip stats verzending");
             return false;
         }
         
-        // Verwijder alle oude stats berichten van deze webhook
+        // Verwijder oude stats berichten (beperkte functionaliteit met webhook)
         deleteOldStatsMessages(webhookUrl);
         
         String stats = generateStatsString();
         String messageId = sendDiscordWebhook(webhookUrl, stats);
         
-        if (messageId != null) {
-            return true;
+        return messageId != null;
+    }
+    
+    /**
+     * Verstuurt stats via Discord bot (heeft meer rechten dan webhook)
+     */
+    private static boolean sendStatsViaBot(String botToken, String channelId) {
+        try {
+            // Verwijder eerst oude stats berichten
+            deleteOldBotMessages(botToken, channelId);
+            
+            // Genereer stats string
+            String stats = generateStatsString();
+            
+            // Verstuur nieuw bericht via bot API
+            String url = "https://discord.com/api/v10/channels/" + channelId + "/messages";
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setRequestProperty("Authorization", "Bot " + botToken);
+            conn.setDoOutput(true);
+            
+            // JSON body met content
+            String jsonBody = "{\"content\": " + escapeJsonString(stats) + "}";
+            
+            try (java.io.OutputStream os = conn.getOutputStream()) {
+                os.write(jsonBody.getBytes("UTF-8"));
+            }
+            
+            int responseCode = conn.getResponseCode();
+            if (responseCode == 200 || responseCode == 201) {
+                Bukkit.getLogger().info("Stats succesvol verstuurd via Discord bot");
+                return true;
+            } else {
+                // Lees error response
+                java.io.BufferedReader reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(conn.getErrorStream())
+                );
+                StringBuilder response = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    response.append(line);
+                }
+                reader.close();
+                
+                Bukkit.getLogger().warning("Discord bot API error (" + responseCode + "): " + response);
+                return false;
+            }
+        } catch (Exception e) {
+            Bukkit.getLogger().severe("Fout bij versturen stats via Discord bot: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
+    }
+    
+    /**
+     * Verwijdert oude stats berichten die door de bot zijn verstuurd
+     */
+    private static void deleteOldBotMessages(String botToken, String channelId) {
+        try {
+            // Haal bot user ID op
+            String botUserId = getBotUserId(botToken);
+            if (botUserId == null) {
+                Bukkit.getLogger().warning("Kan bot user ID niet ophalen, skip oude berichten verwijderen");
+                return;
+            }
+            
+            // Haal laatste 100 berichten op
+            String url = "https://discord.com/api/v10/channels/" + channelId + "/messages?limit=100";
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            conn.setRequestMethod("GET");
+            conn.setRequestProperty("Authorization", "Bot " + botToken);
+            
+            int responseCode = conn.getResponseCode();
+            if (responseCode != 200) {
+                Bukkit.getLogger().warning("Kan berichten niet ophalen: " + responseCode);
+                return;
+            }
+            
+            // Parse JSON response
+            java.io.BufferedReader reader = new java.io.BufferedReader(
+                new java.io.InputStreamReader(conn.getInputStream())
+            );
+            StringBuilder response = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                response.append(line);
+            }
+            reader.close();
+            
+            String jsonResponse = response.toString();
+            
+            // Vind berichten van deze bot die stats bevatten (gemarkeerd met emoji)
+            // Simpele JSON parsing zonder externe library
+            List<String> messageIdsToDelete = new ArrayList<>();
+            int startIndex = 0;
+            while (true) {
+                int idIndex = jsonResponse.indexOf("\"id\":\"", startIndex);
+                if (idIndex == -1) break;
+                
+                int idEnd = jsonResponse.indexOf("\"", idIndex + 6);
+                String messageId = jsonResponse.substring(idIndex + 6, idEnd);
+                
+                // Check of dit bericht van onze bot is
+                int authorIndex = jsonResponse.indexOf("\"author\":", idIndex);
+                int nextMessageIndex = jsonResponse.indexOf("\"id\":\"", idEnd);
+                if (nextMessageIndex == -1) nextMessageIndex = jsonResponse.length();
+                
+                if (authorIndex != -1 && authorIndex < nextMessageIndex) {
+                    int authorIdIndex = jsonResponse.indexOf("\"id\":\"", authorIndex);
+                    if (authorIdIndex != -1 && authorIdIndex < nextMessageIndex) {
+                        int authorIdEnd = jsonResponse.indexOf("\"", authorIdIndex + 6);
+                        String authorId = jsonResponse.substring(authorIdIndex + 6, authorIdEnd);
+                        
+                        if (authorId.equals(botUserId)) {
+                            // Check of het bericht stats emoji bevat
+                            int contentIndex = jsonResponse.indexOf("\"content\":\"", idIndex);
+                            if (contentIndex != -1 && contentIndex < nextMessageIndex) {
+                                int contentEnd = jsonResponse.indexOf("\"", contentIndex + 11);
+                                String content = jsonResponse.substring(contentIndex + 11, contentEnd);
+                                
+                                if (content.contains("🏆") || content.contains("💀") || 
+                                    content.contains("✅") || content.contains("🔥") || content.contains("🪄")) {
+                                    messageIdsToDelete.add(messageId);
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                startIndex = idEnd;
+            }
+            
+            // Verwijder oude stats berichten
+            for (String messageId : messageIdsToDelete) {
+                try {
+                    String deleteUrl = "https://discord.com/api/v10/channels/" + channelId + "/messages/" + messageId;
+                    java.net.HttpURLConnection deleteConn = (java.net.HttpURLConnection) new java.net.URL(deleteUrl).openConnection();
+                    deleteConn.setRequestMethod("DELETE");
+                    deleteConn.setRequestProperty("Authorization", "Bot " + botToken);
+                    
+                    int deleteCode = deleteConn.getResponseCode();
+                    if (deleteCode == 204) {
+                        Bukkit.getLogger().info("Oud stats bericht verwijderd: " + messageId);
+                    }
+                    
+                    // Rate limiting: max 5 DELETE per seconde
+                    Thread.sleep(200);
+                } catch (Exception e) {
+                    Bukkit.getLogger().warning("Fout bij verwijderen bericht " + messageId + ": " + e.getMessage());
+                }
+            }
+            
+            if (messageIdsToDelete.size() > 0) {
+                Bukkit.getLogger().info("Totaal " + messageIdsToDelete.size() + " oude stats berichten verwijderd");
+            }
+        } catch (Exception e) {
+            Bukkit.getLogger().warning("Fout bij verwijderen oude bot berichten: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Haalt de bot user ID op via Discord API
+     */
+    private static String getBotUserId(String botToken) {
+        try {
+            String url = "https://discord.com/api/v10/users/@me";
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            conn.setRequestMethod("GET");
+            conn.setRequestProperty("Authorization", "Bot " + botToken);
+            
+            int responseCode = conn.getResponseCode();
+            if (responseCode != 200) {
+                return null;
+            }
+            
+            java.io.BufferedReader reader = new java.io.BufferedReader(
+                new java.io.InputStreamReader(conn.getInputStream())
+            );
+            StringBuilder response = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                response.append(line);
+            }
+            reader.close();
+            
+            String jsonResponse = response.toString();
+            
+            // Parse bot ID uit JSON
+            int idIndex = jsonResponse.indexOf("\"id\":\"");
+            if (idIndex != -1) {
+                int idEnd = jsonResponse.indexOf("\"", idIndex + 6);
+                return jsonResponse.substring(idIndex + 6, idEnd);
+            }
+            
+            return null;
+        } catch (Exception e) {
+            Bukkit.getLogger().warning("Fout bij ophalen bot user ID: " + e.getMessage());
+            return null;
+        }
+    }
+    
+    /**
+     * Escaped een string voor gebruik in JSON
+     */
+    private static String escapeJsonString(String input) {
+        if (input == null) return "null";
+        
+        StringBuilder sb = new StringBuilder();
+        sb.append("\"");
+        
+        for (char c : input.toCharArray()) {
+            switch (c) {
+                case '"':
+                    sb.append("\\\"");
+                    break;
+                case '\\':
+                    sb.append("\\\\");
+                    break;
+                case '\b':
+                    sb.append("\\b");
+                    break;
+                case '\f':
+                    sb.append("\\f");
+                    break;
+                case '\n':
+                    sb.append("\\n");
+                    break;
+                case '\r':
+                    sb.append("\\r");
+                    break;
+                case '\t':
+                    sb.append("\\t");
+                    break;
+                default:
+                    sb.append(c);
+            }
         }
         
-        return false;
+        sb.append("\"");
+        return sb.toString();
     }
     
     private static String generateStatsString() {
