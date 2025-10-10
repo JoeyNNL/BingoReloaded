@@ -117,7 +117,7 @@ public class DiscordWebhookUtil {
             
             int responseCode = conn.getResponseCode();
             if (responseCode != 200) {
-                Bukkit.getLogger().warning("Kan berichten niet ophalen: " + responseCode);
+                Bukkit.getLogger().warning("Kan berichten niet ophalen (code " + responseCode + ")");
                 return;
             }
             
@@ -134,45 +134,73 @@ public class DiscordWebhookUtil {
             
             String jsonResponse = response.toString();
             
-            // Vind berichten van deze bot die stats bevatten (gemarkeerd met emoji)
-            // Simpele JSON parsing zonder externe library
+            // Vind berichten van deze bot die stats bevatten
+            // Discord message format: [{"type":0,"content":"...","author":{"id":"...","bot":true}},...]
             List<String> messageIdsToDelete = new ArrayList<>();
-            int startIndex = 0;
-            while (true) {
-                int idIndex = jsonResponse.indexOf("\"id\":\"", startIndex);
-                if (idIndex == -1) break;
+            
+            // Split de JSON array op berichten
+            String[] parts = jsonResponse.split("\\},\\{\"type\":");
+            
+            for (int i = 0; i < parts.length; i++) {
+                String part = parts[i];
                 
-                int idEnd = jsonResponse.indexOf("\"", idIndex + 6);
-                String messageId = jsonResponse.substring(idIndex + 6, idEnd);
+                // Fix de JSON structure (add back de { en } die gesplit zijn)
+                if (i > 0) part = "{\"type\":" + part;
+                if (i < parts.length - 1) part = part + "}";
                 
-                // Check of dit bericht van onze bot is
-                int authorIndex = jsonResponse.indexOf("\"author\":", idIndex);
-                int nextMessageIndex = jsonResponse.indexOf("\"id\":\"", idEnd);
-                if (nextMessageIndex == -1) nextMessageIndex = jsonResponse.length();
+                // Verwijder leading [ en trailing ]
+                part = part.replace("[", "").replace("]", "");
                 
-                if (authorIndex != -1 && authorIndex < nextMessageIndex) {
-                    int authorIdIndex = jsonResponse.indexOf("\"id\":\"", authorIndex);
-                    if (authorIdIndex != -1 && authorIdIndex < nextMessageIndex) {
-                        int authorIdEnd = jsonResponse.indexOf("\"", authorIdIndex + 6);
-                        String authorId = jsonResponse.substring(authorIdIndex + 6, authorIdEnd);
+                if (part.trim().isEmpty()) continue;
+                
+                // Extract author ID uit het author object
+                int authorStart = part.indexOf("\"author\":{");
+                if (authorStart == -1) continue;
+                
+                int authorIdStart = part.indexOf("\"id\":\"", authorStart);
+                if (authorIdStart == -1) continue;
+                
+                authorIdStart += 6; // Skip "id":"
+                int authorIdEnd = part.indexOf("\"", authorIdStart);
+                String authorId = part.substring(authorIdStart, authorIdEnd);
+                
+                // Check of dit een bot is en onze bot
+                boolean isBot = part.contains("\"bot\":true");
+                
+                if (isBot && authorId.equals(botUserId)) {
+                    // Extract content
+                    int contentStart = part.indexOf("\"content\":\"");
+                    if (contentStart != -1) {
+                        contentStart += 11; // Skip "content":"
+                        int contentEnd = part.indexOf("\"", contentStart);
+                        // Handle escaped quotes in content
+                        while (contentEnd > 0 && part.charAt(contentEnd - 1) == '\\') {
+                            contentEnd = part.indexOf("\"", contentEnd + 1);
+                        }
                         
-                        if (authorId.equals(botUserId)) {
-                            // Check of het bericht stats emoji bevat
-                            int contentIndex = jsonResponse.indexOf("\"content\":\"", idIndex);
-                            if (contentIndex != -1 && contentIndex < nextMessageIndex) {
-                                int contentEnd = jsonResponse.indexOf("\"", contentIndex + 11);
-                                String content = jsonResponse.substring(contentIndex + 11, contentEnd);
-                                
-                                if (content.contains("🏆") || content.contains("💀") || 
-                                    content.contains("✅") || content.contains("🔥") || content.contains("🪄")) {
-                                    messageIdsToDelete.add(messageId);
-                                }
+                        String content = part.substring(contentStart, contentEnd);
+                        
+                        // Unescape unicode (bijv. \ud83c\udfc6 is 🏆)
+                        content = unescapeUnicode(content);
+                        
+                        // Check op stats markers
+                        boolean isStatsMessage = content.contains("🏆") || content.contains("💀") || 
+                                                 content.contains("✅") || content.contains("🔥") || content.contains("🪄") ||
+                                                 content.contains("Top 10") || content.contains("Statistieken") ||
+                                                 content.contains("Wins") || content.contains("Losses");
+                        
+                        if (isStatsMessage) {
+                            // Extract message ID (het id veld VOOR het author object)
+                            int msgIdStart = part.indexOf("\"id\":\"");
+                            if (msgIdStart != -1 && msgIdStart < authorStart) {
+                                msgIdStart += 6;
+                                int msgIdEnd = part.indexOf("\"", msgIdStart);
+                                String messageId = part.substring(msgIdStart, msgIdEnd);
+                                messageIdsToDelete.add(messageId);
                             }
                         }
                     }
                 }
-                
-                startIndex = idEnd;
             }
             
             // Verwijder oude stats berichten
@@ -185,18 +213,20 @@ public class DiscordWebhookUtil {
                     
                     int deleteCode = deleteConn.getResponseCode();
                     if (deleteCode == 204) {
-                        Bukkit.getLogger().info("Oud stats bericht verwijderd: " + messageId);
+                        Bukkit.getLogger().info("Oud stats bericht verwijderd");
+                    } else {
+                        Bukkit.getLogger().warning("Kon bericht niet verwijderen (code " + deleteCode + ")");
                     }
                     
                     // Rate limiting: max 5 DELETE per seconde
                     Thread.sleep(200);
                 } catch (Exception e) {
-                    Bukkit.getLogger().warning("Fout bij verwijderen bericht " + messageId + ": " + e.getMessage());
+                    Bukkit.getLogger().warning("Fout bij verwijderen bericht: " + e.getMessage());
                 }
             }
             
             if (messageIdsToDelete.size() > 0) {
-                Bukkit.getLogger().info("Totaal " + messageIdsToDelete.size() + " oude stats berichten verwijderd");
+                Bukkit.getLogger().info(messageIdsToDelete.size() + " oude stats berichten verwijderd");
             }
         } catch (Exception e) {
             Bukkit.getLogger().warning("Fout bij verwijderen oude bot berichten: " + e.getMessage());
@@ -282,6 +312,36 @@ public class DiscordWebhookUtil {
         }
         
         sb.append("\"");
+        return sb.toString();
+    }
+    
+    /**
+     * Unescape Unicode sequences zoals backslash-u-d-8-3-c naar emoji
+     */
+    private static String unescapeUnicode(String input) {
+        if (input == null) return null;
+        
+        StringBuilder sb = new StringBuilder();
+        int i = 0;
+        
+        while (i < input.length()) {
+            if (i < input.length() - 5 && input.charAt(i) == '\\' && input.charAt(i + 1) == 'u') {
+                // Parse unicode escape sequence
+                try {
+                    String hex = input.substring(i + 2, i + 6);
+                    int code = Integer.parseInt(hex, 16);
+                    sb.append((char) code);
+                    i += 6;
+                } catch (Exception e) {
+                    sb.append(input.charAt(i));
+                    i++;
+                }
+            } else {
+                sb.append(input.charAt(i));
+                i++;
+            }
+        }
+        
         return sb.toString();
     }
     
