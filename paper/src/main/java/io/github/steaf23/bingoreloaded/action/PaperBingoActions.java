@@ -30,10 +30,16 @@ public class PaperBingoActions {
             BingoAction bingoAction, BingoConfigurationData config) {
         
         return (args, session) -> {
+            // Check of bot of webhook is geconfigureerd
+            String botToken = config.getOptionValue(BingoOptions.DISCORD_BOT_TOKEN);
+            String channelId = config.getOptionValue(BingoOptions.DISCORD_CHANNEL_ID);
             String webhookUrl = config.getOptionValue(BingoOptions.DISCORD_WEBHOOK_URL);
+            
+            boolean botConfigured = !botToken.isEmpty() && !channelId.isEmpty();
+            boolean webhookConfigured = !webhookUrl.isEmpty() && !webhookUrl.contains("YOUR_WEBHOOK");
 
-            if (webhookUrl.isEmpty()) {
-                Component msg = Component.text("Discord webhook URL is not configured!")
+            if (!botConfigured && !webhookConfigured) {
+                Component msg = Component.text("Discord bot/webhook is not configured!")
                         .color(NamedTextColor.RED);
                 BingoPlayerSender.sendMessage(msg, bingoAction.getLastUser());
                 return ActionResult.IGNORED;
